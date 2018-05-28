@@ -1,10 +1,15 @@
 import serial
 import time
-import event_log
 import logging
 
 
 def _verify_connection(method):
+    """
+    Decorator for methods of bitbang + derived classes. The following checks are performed in order:
+      1) Serial port is open (and configured)
+      2) Break condition is not set
+    Exceptions are raised if the aforementioned check conditions are not met
+    """
     def decorated(instance, *args, **kwargs):
         if instance.com.is_open:
             if not instance.com.break_condition:
@@ -24,7 +29,7 @@ class BitbangRaw(object):
         """
         Configure serial, data logging and comms protocol parameters.
 
-        :param port: COM port
+        :param port: serial/COM port
         :param baudrate: (typ. 115200)
         :param bytesize: (typ. 8-bit)
         :param parity: (typ. 'N' -> no parity check)
@@ -49,7 +54,7 @@ class BitbangRaw(object):
             self.protocol_echo = None
 
             # Configure execution parameters
-            self.delay = 0.05  # typical delay between BP instructions
+            self.delay = 0.05  # typical delay between bus pirate instructions
         except ValueError:
             logging.error("Serial port could not be configured. Initialization parameters are out of bounds.")
             raise
@@ -73,8 +78,8 @@ class BitbangRaw(object):
         try:
             self.com.close()
             logging.info("Disconnected from device at {0}.".format(self.com.port))
-        except serial.SerialException:
-            logging.error("Failed to disconnect from device.")
+        except serial.SerialException as error:
+            logging.error("Failed to disconnect: {0}.".format(error))
             raise
 
     @_verify_connection
@@ -82,9 +87,6 @@ class BitbangRaw(object):
         """
         [0000 1111 -> Reset Bus Pirate]
         Bus Pirate responds 0x01 and then performs a complete hardware reset.
-
-        :return True:   Hard reset acknowledged by BP
-        :return False:  Hard reset could not be verified
         """
         try:
             self.mode_binary()  # reset to binary mode before attempting reset (seems necessary)
@@ -93,14 +95,15 @@ class BitbangRaw(object):
             response = self.com.read(1)
             if response == b'\x01':  # BP returns 0x01 before performing hardware reset
                 logging.info("BusPirate: Terminal mode configured.")
-                # wait one second and flush startup spam on comms interface
+                # wait one second and flush startup spam on comms interface (device info, etc.)
                 time.sleep(1)
                 self.com.read_all()
+                return
             else:
-                logging.warning("Device could not be reset (terminal mode).")
+                logging.error("Device could not be reset (terminal mode).")
                 raise serial.SerialException
         except serial.SerialException:
-            logging.error("Write operation timed out.")
+            logging.error("Serial operation failed.")
             raise
 
     @_verify_connection
@@ -109,9 +112,6 @@ class BitbangRaw(object):
         [0000 0000 -> Reset (to binary mode)]
         Command resets the Bus Pirate into raw bitbang mode (from either terminal or other protocol modes). BP returns
         five byte bitbang version string "BBIOx".
-
-        :return True:   BP successfully configured for raw binary operation
-        :return False:  BP could not be configured
         """
         try:
             for count in range(25):  # BP must receive 0x00 at least 20 times to enter raw bitbang mode (20 + 5 extra)
@@ -122,7 +122,7 @@ class BitbangRaw(object):
                     logging.info("BusPirate: Binary mode configured ({0}).".format(str(count+1)))
                     return
         except serial.SerialException:
-            logging.error("Write operation timed out.")
+            logging.error("Serial operation failed.")
             raise
         else:
             logging.error("Connection timeout. Device could not be configured.")
@@ -134,13 +134,11 @@ class BitbangRaw(object):
         [0000 xxxx -> Enter binary [xxx] mode]
         Configures the Bus Pirate for interfacing over a specific protocol. BP returns the pre-programmed protocol
         echo. This method relies on attributes configured by derived protocol classes.
-
-        :return True:   BP successfully configured for specified protocol
-        :return False:  BP could not be configured
         """
         try:
             self.com.write(self.protocol_code)
             time.sleep(self.delay)
+            # TODO: Double check this read_all() call. Maybe rather use read(1)
             response = self.com.read_all()
             if response == self.protocol_echo:
                 logging.info("BusPirate: Configured for {0} communication".format(self.protocol))
@@ -152,7 +150,7 @@ class BitbangRaw(object):
             logging.error("Specified protocol not implemented.")
             raise
         except serial.SerialException:
-            logging.error("Write operation timed out.")
+            logging.error("Serial operation failed.")
             raise
 
 
@@ -176,19 +174,14 @@ class BitbangI2C(BitbangRaw):
             self.protocol = 'I2C'
             self.protocol_code = bytes([0b00000010])
             self.protocol_echo = b'I2C1'
-        except Exception:
+        except Exception:  # pipe exception from parent class
             raise
 
     @_verify_connection
     def configure_protocol(self):
-        """
-        Configure BP for I2C interfacing.
-
-        :return True:   BP successfully configured for interfacing over I2C
-        :return False:  BP could not be configured for I2C interfacing
-        """
+        """Configure BP for I2C interfacing."""
         try:
-            self.mode_binary()  # reset BP to binary mode
+            self.mode_binary()  # reset BP to binary mode (seems necessary)
             self.mode_protocol()  # configure BP for interfacing over I2C
         except Exception:
             raise
@@ -201,7 +194,6 @@ class BitbangI2C(BitbangRaw):
         BP responds 0x01 on success
 
         :param speed: I2C speed as string (in kHz)
-        :return True:
         """
         valid_speeds = {'5': 0b00, '50': 0b01, '100': 0b10, '400': 0b11}  # valid I2C speeds (in kHz)
         try:
@@ -232,8 +224,6 @@ class BitbangI2C(BitbangRaw):
         :param pullups: Configure pull-up resistors (True=Enable; False=Disable)
         :param aux:     Set state of AUX pin [normal pin output] (True=3V3; False=GND)
         :param cs:      Set chip select pin (always follows HiZ pin configuration)
-        :return True:   Peripherals successfully configured
-        :return False:  Peripherals could not be configured
         """
         try:
             command = 0b01000000 + 0b1000*vreg + 0b0100*pullups + 0b0010*aux + 0b0001*cs
@@ -244,6 +234,7 @@ class BitbangI2C(BitbangRaw):
                 logging.info("BusPirate: Peripherals configured.")
                 logging.info("V-Reg: {0}, Pull-ups: {1}, Aux: {2}, CS: {3}".format(str(vreg), str(pullups),
                                                                                    str(aux), str(cs)))
+                return
             else:
                 logging.error("No confirmation message received from device.")
                 raise serial.SerialException
@@ -256,6 +247,7 @@ class BitbangI2C(BitbangRaw):
 
     @_verify_connection
     def start_bit(self):
+        """Send start bit."""
         try:
             self.com.write(bytes([0b00000010]))
             response = self.com.read(1)  # responds with 0x01 if successful
@@ -271,6 +263,7 @@ class BitbangI2C(BitbangRaw):
 
     @_verify_connection
     def stop_bit(self):
+        """Send stop bit."""
         try:
             self.com.write(bytes([0b00000011]))
             response = self.com.read(1)  # responds with 0x01 if successful
@@ -286,6 +279,7 @@ class BitbangI2C(BitbangRaw):
 
     @_verify_connection
     def ack_bit(self):
+        """Send ACK bit."""
         try:
             self.com.write(bytes([0b00000110]))
             response = self.com.read(1)  # responds with 0x01 if successful
@@ -301,6 +295,7 @@ class BitbangI2C(BitbangRaw):
 
     @_verify_connection
     def nack_bit(self):
+        """Send NACK bit."""
         try:
             self.com.write(bytes([0b00000111]))
             response = self.com.read(1)  # responds with 0x01 if successful
@@ -331,8 +326,7 @@ class BitbangI2C(BitbangRaw):
         """
         [0001 xxxx -> Bulk I2C write, send 1-16 bytes (0=1byte!)]
 
-        :param data:    Data bytes to transmit over I2C as list
-        :return:
+        :param data:    Data bytes to transmit over I2C as list (len 1-16)
         """
         try:
             if 1 <= len(data) <= 16:
@@ -346,24 +340,35 @@ class BitbangI2C(BitbangRaw):
                             logging.error("NACK received. Transmission aborted.")
                             raise serial.SerialException
                 else:
-                    logging.error("I2C write operation not.")
+                    logging.error("I2C write operation not acknowledged by BP. Aborted.")
                     raise serial.SerialException
             else:
-                logging.error("Specify the number of bytes to write (1 - 16).")
-                raise serial.SerialException
+                logging.error("Specify the number of bytes to write within range: (1 - 16).")
+                raise ValueError
         except serial.SerialException:
             logging.error("Serial operation failed.")
             raise
 
     @_verify_connection
     def read(self, device_addr, register_addr, num_bytes, repeated_start=True):
+        """
+        I2C read operation. (Master <-> Slave) flow as follow:
+        M -> [S][dev_addr][W]     [reg_addr]     [RS][dev_addr][R]              [ACK] ...         [NACK][STOP]
+        S ->                 [ACK]          [ACK]                 [ACK?][data_1]      ... [data_n]
+
+        :param device_addr:     I2C device address
+        :param register_addr:   Register address [from which to read bytes(s)]
+        :param num_bytes:       Number of bytes to read from register address
+        :param repeated_start:  Repeated start bit required (bool)
+        """
         try:
+            # configure write and read addresses
             addr_write = device_addr << 1
             addr_read = (device_addr << 1) + 1
 
             self.start_bit()
             self.write_bytes([addr_write, register_addr])
-            if repeated_start:
+            if repeated_start:  # repeated start bit required
                 self.start_bit()
             self.write_bytes([addr_read])
 
@@ -380,9 +385,18 @@ class BitbangI2C(BitbangRaw):
 
     @_verify_connection
     def write(self, device_addr, register_addr, data):
+        """
+        I2C write operation. (Master <-> Slave) flow as follow:
+        M -> [S][dev_addr][W]     [reg_addr]     [data_1]      ... [data_n]     [STOP]
+        S ->                 [ACK]          [ACK]        [ACK] ...         [ACK]
+
+        :param device_addr:     I2C device address
+        :param register_addr:   Register address [to write to]
+        :param data:            Data to write [list]
+        """
         try:
+            # configure write address
             addr_write = device_addr << 1
-            addr_read = (device_addr << 1) + 1
 
             self.start_bit()
             self.write_bytes([addr_write, register_addr])
