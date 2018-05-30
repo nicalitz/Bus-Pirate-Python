@@ -128,8 +128,8 @@ class MEMS:
             # ------------------------------------------------------------
             # 0x20: CTRL_REG1 configuration
             # ------------------------------------------------------------
-            data_rate = 0b11
-            bandwidth = 0b11
+            data_rate = 0b00
+            bandwidth = 0b00
             power = 0b1  # 0->power down, 1->normal or sleep
             z_en = 0b1  # 0->disabled, 1->enabled (z-axis)
             y_en = 0b1  # 0->disabled, 1->enabled (y-axis)
@@ -194,7 +194,7 @@ class MEMS:
             # 0x24: CTRL_REG5 configuration
             # ------------------------------------------------------------
             boot = 0b0  # reboot memory content (0->normal (default), 1->reboot memory content)
-            fifo_en = 0b1  # fifo enable (0->disable (default), 1->enable)
+            fifo_en = 0b0  # fifo enable (0->disable (default), 1->enable)
             hpen = 0b0  # high pass filter enable (0->disabled (def), 1->enabled)
             int1 = 0b00  # see datasheet
             out = 0b00  # see datasheet
@@ -207,68 +207,58 @@ class MEMS:
             raise
 
     def st_xyz(self, device_addr):
-        # print(self.bp_i2c.read(device_addr, 0x25, 1))
-        # fifo = b'\x00'
-        # while fifo == b'\x00':
-        #     fifo = self.bp_i2c.read(device_addr, 0x27, 1)[0]
+        data_ready = 0
+        while data_ready == 0:
+            status_reg = self.bp_i2c.read(device_addr, 0x27, 1)[0]
+            data_ready = (int.from_bytes(status_reg, byteorder='big', signed=False)) & 0b00001000
+
+        data_read = [self.bp_i2c.read(device_addr, 0x28, 1)[0]]
+        data_read.append(self.bp_i2c.read(device_addr, 0x29, 1)[0])
+        data_read.append(self.bp_i2c.read(device_addr, 0x2A, 1)[0])
+        data_read.append(self.bp_i2c.read(device_addr, 0x2B, 1)[0])
+        data_read.append(self.bp_i2c.read(device_addr, 0x2C, 1)[0])
+        data_read.append(self.bp_i2c.read(device_addr, 0x2D, 1)[0])
+
+        fscale = (self.st_sensitivity / 1000)
+        data = [fscale * int.from_bytes(data_read[1] + data_read[0], byteorder='big', signed=True)]
+        data.append(fscale * int.from_bytes(data_read[3] + data_read[2], byteorder='big', signed=True))
+        data.append(fscale * int.from_bytes(data_read[5] + data_read[4], byteorder='big', signed=True))
+
+        # ----------------------- working code ---------------------------
+        # self.bp_i2c.write(device_addr, 0x2E, [0b00011111])
+        # time.sleep(1)
+        # self.bp_i2c.write(device_addr, 0x2E, [0b00111111])
+        # time.sleep(10)
+        # while self.bp_i2c.read(device_addr, 0x2F, 1)[0] != b'\xdf':
+        #     fifo = self.bp_i2c.read(device_addr, 0x2F, 1)[0]
         #     print(bin(int.from_bytes(fifo, byteorder='big', signed=False)))
+        #     time.sleep(1)
+        # for n in range(36):
+        #     self.bp_i2c.read(device_addr, 0x28, 1)
+        #     data_read = self.bp_i2c.read(device_addr, 0x2A, 1)
+        #     data_read += self.bp_i2c.read(device_addr, 0x2B, 1)
+        #     data_read += self.bp_i2c.read(device_addr, 0x2C, 1)
+        #     data_read += self.bp_i2c.read(device_addr, 0x2D, 1)
+        #     data_read += self.bp_i2c.read(device_addr, 0x28, 1)
+        #     data_read += self.bp_i2c.read(device_addr, 0x29, 1)
+        #
+        #     fscale = (self.st_sensitivity / 1000)
+        #     data = [fscale * int.from_bytes(data_read[5] + data_read[4], byteorder='big', signed=True)]
+        #     data.append(fscale * int.from_bytes(data_read[1] + data_read[0], byteorder='big', signed=True))
+        #     data.append(fscale * int.from_bytes(data_read[3] + data_read[2], byteorder='big', signed=True))
+        #
+        #     print(data)
+        #
+        # self.bp_i2c.read(device_addr, 0x25, 1)
+        # -----------------------------------------------------------------
 
-        # data_read = [self.bp_i2c.read(device_addr, 0x28, 1)[0]]
-        # data_read.append(self.bp_i2c.read(device_addr, 0x29, 1)[0])
-        # data_read.append(self.bp_i2c.read(device_addr, 0x2A, 1)[0])
-        # data_read.append(self.bp_i2c.read(device_addr, 0x2B, 1)[0])
-        # data_read.append(self.bp_i2c.read(device_addr, 0x2C, 1)[0])
-        # data_read.append(self.bp_i2c.read(device_addr, 0x2D, 1)[0])
-
-        self.bp_i2c.write(device_addr, 0x2E, [0b00011111])
-        time.sleep(1)
-        self.bp_i2c.write(device_addr, 0x2E, [0b00111111])
-        time.sleep(10)
-        # print(self.bp_i2c.read(device_addr,0x24, 1))
-        while self.bp_i2c.read(device_addr, 0x2F, 1)[0] != b'\xdf':
-            fifo = self.bp_i2c.read(device_addr, 0x2F, 1)[0]
-            print(bin(int.from_bytes(fifo, byteorder='big', signed=False)))
-            time.sleep(1)
-        for n in range(36):
-            self.bp_i2c.read(device_addr, 0x28, 1)
-            data_read = self.bp_i2c.read(device_addr, 0x2A, 1)
-            data_read += self.bp_i2c.read(device_addr, 0x2B, 1)
-            data_read += self.bp_i2c.read(device_addr, 0x2C, 1)
-            data_read += self.bp_i2c.read(device_addr, 0x2D, 1)
-            data_read += self.bp_i2c.read(device_addr, 0x28, 1)
-            data_read += self.bp_i2c.read(device_addr, 0x29, 1)
-
-            fscale = (self.st_sensitivity / 1000)
-            data = [fscale * int.from_bytes(data_read[5] + data_read[4], byteorder='big', signed=True)]
-            data.append(fscale * int.from_bytes(data_read[1] + data_read[0], byteorder='big', signed=True))
-            data.append(fscale * int.from_bytes(data_read[3] + data_read[2], byteorder='big', signed=True))
-
-            print(data)
-
-        self.bp_i2c.read(device_addr, 0x25, 1)
-        # data_read = self.bp_i2c.read(device_addr, 0x80 | 0x28, 6)
-
-        # data_read = self.bp_i2c.read(device_addr, 0x28, 2)
-        # data_read += self.bp_i2c.read(device_addr, 0x2A, 2)
-        # data_read += self.bp_i2c.read(device_addr, 0x2C, 2)
-
-        # time.sleep(0.5)
-        # self.bp_i2c.write(device_addr, 0x25, [0x05])
-        # time.sleep(0.5)
-
-        # fscale = (self.st_sensitivity / 1000)
-        # data = [fscale * int.from_bytes(data_read[1] + data_read[0], byteorder='big', signed=True)]
-        # data.append(fscale * int.from_bytes(data_read[3] + data_read[2], byteorder='big', signed=True))
-        # data.append(fscale * int.from_bytes(data_read[5] + data_read[4], byteorder='big', signed=True))
-
-        # return data
-        return [1, 2]
+        return data
 
     def st_temp(self, device_addr):
         try:
             # read and process temp data
             temp = self.bp_i2c.read(device_addr, 0x26, 1)[0]
-            data= [int.from_bytes(temp, byteorder='big', signed=True)]
+            data = [int.from_bytes(temp, byteorder='big', signed=True)]
             # return temp data as [temp(°C)]
             return data
         except Exception:
@@ -289,9 +279,12 @@ if __name__ == "__main__":
                     # nxp_data += mems.nxp_temp(mems.nxp_addr[1])
                     # print(nxp_data)
                     # writer.writerow([str(x) for x in nxp_data])
-                    st_data = mems.st_xyz(mems.st_addr[0])
+                    st_xyz = mems.st_xyz(mems.st_addr[0])
                     st_temp = mems.st_temp(mems.st_addr[0])
-                    print(st_data + st_temp)
+                    st_data = st_xyz + st_temp
+                    print(["{:.5f}".format(x) for x in st_data])
+                    # time.sleep(3)
+
         except (serial.SerialException, ValueError, KeyError):
             pass
         except KeyboardInterrupt:
