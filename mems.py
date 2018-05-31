@@ -1,7 +1,7 @@
 import serial
 import bitbang
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import csv
 import time
@@ -293,33 +293,147 @@ class MEMS:
         except Exception:
             raise
 
+
 if __name__ == "__main__":
     mems = MEMS()
-    while True:
-        try:
-            mems.i2c_connect()
-            mems.nxp_configure(mems.nxp_addr[1])
-            # mems.st_configure(mems.st_addr[0])
-            timestamp = datetime.strftime(datetime.now(), '%Y-%m-%d %H-%M-%S')
-            with open(os.path.join('data', timestamp + '.csv'), 'w', newline='') as csvfile:
-                writer = csv.writer(csvfile, delimiter=',')
+    err_count = tuple([0] * 4)
+    timestamp = datetime.strftime(datetime.now(), '%Y-%m-%d %H-%M-%S')
+    with open(os.path.join('data', timestamp + '.csv'), 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile, delimiter=',')
+        while True:
+            try:
+                timestamp_start = datetime.now()
+                mems.i2c_connect()
+
+                # connect to NXP sensor at I2C low
+                try:
+                    if err_count[0] < 25:
+                        mems.nxp_configure(mems.nxp_addr[0])
+                except Exception:
+                    err_count[0] += 1
+                    raise
+
+                # connect to NXP sensor at I2C high
+                try:
+                    if err_count[1] < 25:
+                        mems.nxp_configure(mems.nxp_addr[1])
+                except Exception:
+                    err_count[1] += 1
+                    raise
+
+                # connect to ST sensor at I2C low
+                try:
+                    if err_count[2] < 25:
+                        mems.st_configure(mems.st_addr[0])
+                except Exception:
+                    err_count[2] += 1
+                    raise
+
+                # connect to ST sensor at I2C high
+                try:
+                    if err_count[3] < 25:
+                        mems.st_configure(mems.st_addr[1])
+                except Exception:
+                    err_count[3] += 1
+                    raise
+
                 while True:
-                    nxp_data = mems.nxp_xyz(mems.nxp_addr[1])
-                    nxp_data += mems.nxp_temp(mems.nxp_addr[1])
-                    print(["{:.5f}".format(x) for x in nxp_data])
+                    # print error count and do self check on all sensors every 10 min
+                    if ((datetime.now()-timestamp_start).seconds/60) > 10.0:
+                        print(err_count)
 
-                    # st_data = mems.st_xyz(mems.st_addr[0])
-                    # st_data += mems.st_temp(mems.st_addr[0])
+                        if err_count[0] < 25:
+                            try:
+                                mems.nxp_selftest(mems.nxp_addr[0])
+                            except KeyboardInterrupt:
+                                raise
+                            except Exception:
+                                pass
 
-                    # mems.nxp_selftest(mems.nxp_addr[1])
+                        if err_count[1] < 25:
+                            try:
+                                mems.nxp_selftest(mems.nxp_addr[1])
+                            except KeyboardInterrupt:
+                                raise
+                            except Exception:
+                                pass
 
-                    time.sleep(5)
+                        if err_count[2] < 25:
+                            try:
+                                mems.st_selftest(mems.st_addr[0])
+                            except KeyboardInterrupt:
+                                raise
+                            except Exception:
+                                pass
 
-                    # writer.writerow(["{:.5f}".format(x) for x in (nxp_data + st_data)])
-        except (serial.SerialException, ValueError, KeyError):
-            pass
-        except KeyboardInterrupt:
-            mems.i2c_disconnect()
-            del mems
-            break
-        mems.i2c_disconnect()
+                        if err_count[3] < 25:
+                            try:
+                                mems.st_selftest(mems.st_addr[1])
+                            except KeyboardInterrupt:
+                                raise
+                            except Exception:
+                                pass
+
+                        timestamp_start = datetime.now()
+
+                    try:
+                        for addr in range(2):
+                            if err_count[addr] < 25:
+                                data = mems.nxp_xyz(mems.nxp_addr[addr])
+                                data += mems.nxp_temp(mems.nxp_addr[addr])
+                                writer.writerow(['NXP{:d}'.format(addr)] + ["{:.5f}".format(x) for x in data])
+
+                        for addr in range(2):
+                            if err_count[addr + 2] < 25:
+                                data = mems.st_xyz(mems.st_addr[addr])
+                                data += mems.st_temp(mems.st_addr[addr])
+                                writer.writerow(['ST{:d}'.format(addr)] + ["{:.5f}".format(x) for x in data])
+
+                        time.sleep(6)
+                    except Exception:
+                        raise
+            except (serial.SerialException, ValueError, KeyError):
+                mems.i2c_disconnect()
+            except KeyboardInterrupt:
+                mems.i2c_disconnect()
+                del mems
+                break
+
+        #     mems.nxp_configure(mems.nxp_addr[1])
+        #     mems.st_configure(mems.st_addr[0])
+        #     mems.st_configure(mems.st_addr[1])
+        #
+        #
+        #
+        #         writer = csv.writer(csvfile, delimiter=',')
+        #         while True:
+        #             print(datetime.strftime(datetime.now(), '%H-%M-%S'))
+        #
+        #             nxp_data = mems.nxp_xyz(mems.nxp_addr[0])
+        #             nxp_data += mems.nxp_temp(mems.nxp_addr[0])
+        #             print(["NXP[0]"] + ["{:.5f}".format(x) for x in nxp_data])
+        #
+        #             nxp_data = mems.nxp_xyz(mems.nxp_addr[1])
+        #             nxp_data += mems.nxp_temp(mems.nxp_addr[1])
+        #             print(["NXP[1]"] + ["{:.5f}".format(x) for x in nxp_data])
+        #             #
+        #             st_data = mems.st_xyz(mems.st_addr[0])
+        #             st_data += mems.st_temp(mems.st_addr[0])
+        #             print(["ST[0]"] + ["{:.5f}".format(x) for x in st_data])
+        #             #
+        #             st_data = mems.st_xyz(mems.st_addr[1])
+        #             st_data += mems.st_temp(mems.st_addr[1])
+        #             print(["ST[1]"] + ["{:.5f}".format(x) for x in st_data])
+        #
+        #             # mems.nxp_selftest(mems.nxp_addr[1])
+        #
+        #             time.sleep(5)
+        #
+        #             # writer.writerow(["{:.5f}".format(x) for x in (nxp_data + st_data)])
+        # except (serial.SerialException, ValueError, KeyError):
+        #     pass
+        # except KeyboardInterrupt:
+        #     mems.i2c_disconnect()
+        #     del mems
+        #     break
+        # mems.i2c_disconnect()
