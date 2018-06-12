@@ -43,7 +43,7 @@ class MEMS:
 
     def nxp_id(self, device_addr):
         try:
-            did = self.bp_i2c.read(device_addr, 0x0C, 1)[0]
+            did = self.bp_i2c.read(device_addr, 0x0C, 1, True)[0]
             did_hex = hex(int.from_bytes(did, byteorder='big', signed=False))
             print("NXP device ID (0xD7): {0}".format(did_hex))
         except Exception:
@@ -84,10 +84,10 @@ class MEMS:
 
     def nxp_selftest(self, device_addr):
         try:
-            ctrl_reg0_store = self.bp_i2c.read(device_addr, 0x0D, 1)[0]
+            ctrl_reg0_store = self.bp_i2c.read(device_addr, 0x0D, 1, True)[0]
             ctrl_reg0_store = int.from_bytes(ctrl_reg0_store, byteorder='big', signed=False)
 
-            ctrl_reg1_store = self.bp_i2c.read(device_addr, 0x13, 1)[0]
+            ctrl_reg1_store = self.bp_i2c.read(device_addr, 0x13, 1, True)[0]
             ctrl_reg1_store = int.from_bytes(ctrl_reg1_store, byteorder='big', signed=False)
 
             # active -> ready
@@ -117,16 +117,16 @@ class MEMS:
         try:
             fscale = self.nxp_sensitivity / 1000
             # read and process x-axis rate data
-            x_data = self.bp_i2c.read(device_addr, 0x01, 1)[0]
-            x_data += self.bp_i2c.read(device_addr, 0x02, 1)[0]
+            x_data = self.bp_i2c.read(device_addr, 0x01, 1, True)[0]
+            x_data += self.bp_i2c.read(device_addr, 0x02, 1, True)[0]
             data = [fscale * int.from_bytes(x_data, byteorder='big', signed=True)]
             # read and process y-axis rate data
-            y_data = self.bp_i2c.read(device_addr, 0x03, 1)[0]
-            y_data += self.bp_i2c.read(device_addr, 0x04, 1)[0]
+            y_data = self.bp_i2c.read(device_addr, 0x03, 1, True)[0]
+            y_data += self.bp_i2c.read(device_addr, 0x04, 1, True)[0]
             data.append(fscale * int.from_bytes(y_data, byteorder='big', signed=True))
             # read and process z-axis rate data
-            z_data = self.bp_i2c.read(device_addr, 0x05, 1)[0]
-            z_data += self.bp_i2c.read(device_addr, 0x06, 1)[0]
+            z_data = self.bp_i2c.read(device_addr, 0x05, 1, True)[0]
+            z_data += self.bp_i2c.read(device_addr, 0x06, 1, True)[0]
             data.append(fscale * int.from_bytes(z_data, byteorder='big', signed=True))
             # return rate data as [X, Y, Z]
             return data
@@ -136,7 +136,7 @@ class MEMS:
     def nxp_temp(self, device_addr):
         try:
             # read and process temp data
-            temp = self.bp_i2c.read(device_addr, 0x12, 1)[0]
+            temp = self.bp_i2c.read(device_addr, 0x12, 1, True)[0]
             data= [int.from_bytes(temp, byteorder='big', signed=True)]
             # return temp data as [temp(°C)]
             return data
@@ -149,7 +149,7 @@ class MEMS:
 
     def st_id(self, device_addr):
         try:
-            did = self.bp_i2c.read(device_addr, 0x0F, 1)[0]
+            did = self.bp_i2c.read(device_addr, 0x0F, 1, True)[0]
             did_hex = hex(int.from_bytes(did, byteorder='big', signed=False))
             print("ST device ID (0xD3): {0}".format(did_hex))
         except Exception:
@@ -240,7 +240,7 @@ class MEMS:
 
     def st_selftest(self, device_addr):
         try:
-            reg_store = self.bp_i2c.read(device_addr, 0x23, 1)[0]
+            reg_store = self.bp_i2c.read(device_addr, 0x23, 1, True)[0]
             reg_store = int.from_bytes(reg_store, byteorder='big', signed=False)
 
             # self test positive
@@ -264,15 +264,15 @@ class MEMS:
         try:
             data_ready = 0
             while data_ready == 0:
-                status_reg = self.bp_i2c.read(device_addr, 0x27, 1)[0]
+                status_reg = self.bp_i2c.read(device_addr, 0x27, 1, True)[0]
                 data_ready = (int.from_bytes(status_reg, byteorder='big', signed=False)) & 0b00001000
 
             data_read = [self.bp_i2c.read(device_addr, 0x28, 1)[0]]
-            data_read.append(self.bp_i2c.read(device_addr, 0x29, 1)[0])
-            data_read.append(self.bp_i2c.read(device_addr, 0x2A, 1)[0])
-            data_read.append(self.bp_i2c.read(device_addr, 0x2B, 1)[0])
-            data_read.append(self.bp_i2c.read(device_addr, 0x2C, 1)[0])
-            data_read.append(self.bp_i2c.read(device_addr, 0x2D, 1)[0])
+            data_read.append(self.bp_i2c.read(device_addr, 0x29, 1, True)[0])
+            data_read.append(self.bp_i2c.read(device_addr, 0x2A, 1, True)[0])
+            data_read.append(self.bp_i2c.read(device_addr, 0x2B, 1, True)[0])
+            data_read.append(self.bp_i2c.read(device_addr, 0x2C, 1, True)[0])
+            data_read.append(self.bp_i2c.read(device_addr, 0x2D, 1, True)[0])
 
             fscale = (self.st_sensitivity / 1000)
             data = [fscale * int.from_bytes(data_read[1] + data_read[0], byteorder='big', signed=True)]
@@ -286,7 +286,7 @@ class MEMS:
     def st_temp(self, device_addr):
         try:
             # read and process temp data
-            temp = self.bp_i2c.read(device_addr, 0x26, 1)[0]
+            temp = self.bp_i2c.read(device_addr, 0x26, 1, True)[0]
             data = [int.from_bytes(temp, byteorder='big', signed=True)]
             # return temp data as [temp(°C)]
             return data

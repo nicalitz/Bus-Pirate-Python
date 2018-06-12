@@ -350,11 +350,17 @@ class BitbangI2C(BitbangRaw):
             raise
 
     @_verify_connection
-    def read(self, device_addr, register_addr, num_bytes, repeated_start=True):
+    def read(self, device_addr, register_addr, num_bytes, repeated_start):
         """
-        I2C read operation. (Master <-> Slave) flow as follow:
+        I2C read operation (Master <-> Slave)
+
+        Repeated start flow:
         M -> [S][dev_addr][W]     [reg_addr]     [RS][dev_addr][R]              [ACK] ...         [NACK][STOP]
         S ->                 [ACK]          [ACK]                 [ACK?][data_1]      ... [data_n]
+
+        Stop-start flow:
+        M -> [S][dev_addr][W]     [reg_addr]     [STOP] [S][dev_addr][R]             [ACK] ...         [NACK][STOP]
+        S ->                 [ACK]          [ACK]                       [ACK][data_1]      ... [data_n]
 
         :param device_addr:     I2C device address
         :param register_addr:   Register address [from which to read bytes(s)]
@@ -368,8 +374,15 @@ class BitbangI2C(BitbangRaw):
 
             self.start_bit()
             self.write_bytes([addr_write, register_addr])
-            if repeated_start:  # repeated start bit required
+
+            if repeated_start:
+                # repeated start supported
                 self.start_bit()
+            else:
+                # stop-start handshaking required
+                self.stop_bit()
+                self.start_bit()
+
             self.write_bytes([addr_read])
 
             data = []
